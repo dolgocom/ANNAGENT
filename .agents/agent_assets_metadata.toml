@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "7tDbfy7eCWdy17VdD6_da"
+uri = "file://LOS_Full_Context_Document.docx"
+type = "word_document"
+title = "LOS — Life Operating System. Полный контекст проекта"
