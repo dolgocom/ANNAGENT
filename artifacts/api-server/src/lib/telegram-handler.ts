@@ -6,6 +6,8 @@ import { db } from "@workspace/db";
 import { cosInputsTable } from "@workspace/db";
 import { logger } from "./logger";
 
+const ALLOWED_CHAT_IDS = new Set([243075616, 668776362]);
+
 interface SessionState {
   step: string;
   data: Record<string, unknown>;
@@ -29,6 +31,12 @@ function parseLevel(val: string): number | undefined {
 export async function handleTelegramMessage(msg: Message): Promise<void> {
   const chatId = msg.chat.id;
   const text = msg.text ?? "";
+
+  // Access control — only allowed chat IDs
+  if (!ALLOWED_CHAT_IDS.has(chatId)) {
+    logger.warn({ chatId }, "Unauthorized Telegram access attempt — ignored");
+    return;
+  }
 
   // Register CoS chat
   setChatId(String(chatId));
