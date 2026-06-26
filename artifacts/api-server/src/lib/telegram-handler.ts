@@ -71,12 +71,12 @@ function morningCard(data: MorningData, step: Session["step"]): string {
 
 function stepKeyboard(step: Session["step"]) {
   switch (step) {
-    case "energy":  return levelKeyboard("m:energy");
-    case "focus":   return levelKeyboard("m:focus");
-    case "mood":    return levelKeyboard("m:mood");
-    case "workout": return yesNoKeyboard("m:workout");
-    case "massage": return yesNoKeyboard("m:massage");
-    case "alcohol": return yesNoKeyboard("m:alcohol");
+    case "energy":  return levelKeyboard("m:energy",  "⚡ Энергия");
+    case "focus":   return levelKeyboard("m:focus",   "🎯 Фокус");
+    case "mood":    return levelKeyboard("m:mood",    "😊 Настроение");
+    case "workout": return yesNoKeyboard("m:workout", "🏋️ Тренировка сегодня?");
+    case "massage": return yesNoKeyboard("m:massage", "💆 Утренний массаж?");
+    case "alcohol": return yesNoKeyboard("m:alcohol", "🍷 Алкоголь вчера?");
     case "confirm": return {
       inline_keyboard: [[
         { text: "🚀 Запустить анализ", callback_data: "m:confirm" },
@@ -197,6 +197,9 @@ export async function handleCallback(q: CallbackQuery): Promise<void> {
   await answerCallback(q.id);
 
   const data = q.data ?? "";
+
+  // ── Noop — label buttons, do nothing ──
+  if (data === "noop") return;
 
   // ── Quick actions from main menu ──
   if (data === "action:morning") {

@@ -85,21 +85,25 @@ export async function answerCallback(callbackQueryId: string, text?: string): Pr
 
 // ─── Keyboard builders ─────────────────────────────────────────────────────
 
-export function levelKeyboard(prefix: string): InlineKeyboardMarkup {
+export function levelKeyboard(prefix: string, label: string): InlineKeyboardMarkup {
   return {
     inline_keyboard: [
+      [{ text: `· ${label} ·`, callback_data: "noop" }],
       [1, 2, 3, 4, 5].map(n => ({ text: String(n), callback_data: `${prefix}:${n}` })),
       [6, 7, 8, 9, 10].map(n => ({ text: String(n), callback_data: `${prefix}:${n}` })),
     ],
   };
 }
 
-export function yesNoKeyboard(prefix: string): InlineKeyboardMarkup {
+export function yesNoKeyboard(prefix: string, label: string): InlineKeyboardMarkup {
   return {
-    inline_keyboard: [[
-      { text: "✅  Да", callback_data: `${prefix}:yes` },
-      { text: "❌  Нет", callback_data: `${prefix}:no` },
-    ]],
+    inline_keyboard: [
+      [{ text: `· ${label} ·`, callback_data: "noop" }],
+      [
+        { text: "✅  Да", callback_data: `${prefix}:yes` },
+        { text: "❌  Нет", callback_data: `${prefix}:no` },
+      ],
+    ],
   };
 }
 
