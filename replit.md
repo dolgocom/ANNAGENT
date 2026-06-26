@@ -1,6 +1,6 @@
-# [Project name]
+# LOS — Life Operating System
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Многоагентная AI-система управления жизнью и бизнесом через Telegram-бот. CoS (Аня) — единственный человеческий интерфейс.
 
 ## Run & Operate
 
@@ -16,30 +16,68 @@ _Replace the heading above with the project's name, and this line with one sente
 - pnpm workspaces, Node.js 24, TypeScript 5.9
 - API: Express 5
 - DB: PostgreSQL + Drizzle ORM
+- AI: Anthropic Claude (claude-sonnet-4-6) via own API key
+- Telegram: node-telegram-bot-api (polling mode)
+- Scheduler: node-cron (07:00 и 22:00 MSK)
+- Biometrics: Oura Ring API
 - Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
 - Build: esbuild (CJS bundle)
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/api-server/src/agents/` — агенты системы (neuro-bio, decision-support, orchestrator)
+- `artifacts/api-server/src/lib/telegram.ts` — Telegram бот
+- `artifacts/api-server/src/lib/telegram-handler.ts` — обработчик команд Telegram
+- `artifacts/api-server/src/lib/oura.ts` — Oura Ring API клиент
+- `artifacts/api-server/src/lib/scheduler.ts` — cron-планировщик (07:00/22:00 MSK)
+- `artifacts/api-server/src/routes/los.ts` — REST API эндпоинты LOS
+- `lib/db/src/schema/` — DB схема (biometrics, agent_memory, digests, cos_inputs)
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Система только рекомендует, никогда не действует самостоятельно
+- Все решения принимает Аня (CoS) — единственный человеческий интерфейс
+- Язык системы — русский
+- Часовой пояс — Москва (MSK, UTC+3), cron в UTC (04:00/19:00)
+- Агенты запускаются последовательно, не параллельно (per ТЗ)
+- Telegram бот в polling mode (не webhook)
 
-## Product
+## Product — MVP (Фаза 1)
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- **Master Orchestrator** — утренний дайджест в 07:00 MSK, вечерний в 22:00 MSK
+- **Neuro & Bio Agent** — анализирует Oura Ring + ручные вводы Ани, выдаёт рекомендации по состоянию
+- **Decision Support Agent** — утренние приоритеты + анализ конкретных решений по запросу
+- **Telegram Bot (CoS интерфейс)** — команды: /start, /morning, /evening, /decide, /status, /help
+
+## Telegram команды
+
+- `/start` — активация бота
+- `/morning 7 8 7 н д н` — утренний ввод (энергия фокус настроение тренировка массаж алкоголь)
+- `/morning` — интерактивный режим (вопрос за вопросом)
+- `/decide <описание>` — анализ решения
+- `/status` — статус всех агентов системы
+- `/help` — справка
+
+## API эндпоинты
+
+- `POST /api/los/morning` — ручной запуск утренней последовательности
+- `POST /api/los/evening` — ручной запуск вечернего дайджеста
+- `POST /api/los/decide` — анализ решения (body: `{description, financialContext?, peopleContext?}`)
+- `GET /api/los/digests` — история дайджестов
+- `GET /api/los/biometrics` — история биометрики
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Язык системы — русский
+- CoS зовут Аня
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Telegram бот в polling mode — при деплое переключить на webhook
+- COS_TELEGRAM_CHAT_ID устанавливается автоматически после первого /start от Ани
+- Cron time в UTC: 04:00 = 07:00 MSK, 19:00 = 22:00 MSK
+- Morning checklist отправляется в 07:00, auto-sequence с данными Oura в 07:30
 
-## Pointers
+## Поinters
 
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details

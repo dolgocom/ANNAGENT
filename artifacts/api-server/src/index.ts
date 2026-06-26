@@ -1,5 +1,8 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { initTelegramPolling } from "./lib/telegram";
+import { handleTelegramMessage } from "./lib/telegram-handler";
+import { startScheduler } from "./lib/scheduler";
 
 const rawPort = process.env["PORT"];
 
@@ -22,4 +25,10 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
+
+  // Start Telegram bot polling
+  initTelegramPolling(handleTelegramMessage);
+
+  // Start cron scheduler
+  startScheduler();
 });
