@@ -1,15 +1,13 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { initTelegramWebhook } from "./lib/telegram";
-import { handleTelegramMessage } from "./lib/telegram-handler";
+import { handleMessage, handleCallback } from "./lib/telegram-handler";
 import { startScheduler } from "./lib/scheduler";
 
 const rawPort = process.env["PORT"];
 
 if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
+  throw new Error("PORT environment variable is required but was not provided.");
 }
 
 const port = Number(rawPort);
@@ -26,9 +24,9 @@ app.listen(port, (err) => {
 
   logger.info({ port }, "Server listening");
 
-  // Register Telegram webhook
-  void initTelegramWebhook(handleTelegramMessage);
+  // Register Telegram webhook + set commands menu
+  void initTelegramWebhook(handleMessage, handleCallback);
 
-  // Start cron scheduler
+  // Start cron scheduler (07:00 and 22:00 MSK)
   startScheduler();
 });

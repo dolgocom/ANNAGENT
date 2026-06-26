@@ -1,323 +1,415 @@
-import { type Message } from "node-telegram-bot-api";
-import { setChatId, sendTelegramMessage } from "./telegram";
+import type { Message, CallbackQuery } from "node-telegram-bot-api";
+import {
+  setChatId, sendMessage, editMessage, answerCallback,
+  levelKeyboard, yesNoKeyboard, mainMenuKeyboard, getChatId,
+} from "./telegram";
 import { runMorningSequence } from "../agents/orchestrator";
 import { runDecisionSupportAgent } from "../agents/decision-support";
 import { db } from "@workspace/db";
 import { cosInputsTable } from "@workspace/db";
 import { logger } from "./logger";
 
+// ─── Access control ────────────────────────────────────────────────────────
+
 const ALLOWED_CHAT_IDS = new Set([243075616, 668776362]);
 
-interface SessionState {
-  step: string;
-  data: Record<string, unknown>;
+function isAllowed(chatId: number): boolean {
+  if (ALLOWED_CHAT_IDS.has(chatId)) return true;
+  logger.warn({ chatId }, "Unauthorized Telegram access attempt — ignored");
+  return false;
 }
 
-const sessions = new Map<number, SessionState>();
+// ─── Session state ─────────────────────────────────────────────────────────
 
-function parseYesNo(val: string): boolean | undefined {
-  const v = val.toLowerCase().trim();
-  if (v === "д" || v === "да" || v === "y" || v === "yes" || v === "1") return true;
-  if (v === "н" || v === "нет" || v === "n" || v === "no" || v === "0") return false;
-  return undefined;
+interface MorningData {
+  energy?: number;
+  focus?: number;
+  mood?: number;
+  workout?: boolean;
+  massage?: boolean;
+  alcohol?: boolean;
 }
 
-function parseLevel(val: string): number | undefined {
-  const n = parseInt(val, 10);
-  if (!isNaN(n) && n >= 1 && n <= 10) return n;
-  return undefined;
+interface Session {
+  step: "energy" | "focus" | "mood" | "workout" | "massage" | "alcohol" | "confirm" | "decide";
+  data: MorningData;
+  messageId?: number; // message to edit in-place
 }
 
-export async function handleTelegramMessage(msg: Message): Promise<void> {
-  const chatId = msg.chat.id;
-  const text = msg.text ?? "";
+const sessions = new Map<number, Session>();
 
-  // Access control — only allowed chat IDs
-  if (!ALLOWED_CHAT_IDS.has(chatId)) {
-    logger.warn({ chatId }, "Unauthorized Telegram access attempt — ignored");
-    return;
+// ─── UI text builders ──────────────────────────────────────────────────────
+
+function morningCard(data: MorningData, step: Session["step"]): string {
+  const e = data.energy !== undefined ? `${data.energy}/10` : "—";
+  const f = data.focus !== undefined ? `${data.focus}/10` : "—";
+  const m = data.mood !== undefined ? `${data.mood}/10` : "—";
+  const wo = data.workout !== undefined ? (data.workout ? "✅" : "❌") : "—";
+  const ma = data.massage !== undefined ? (data.massage ? "✅" : "❌") : "—";
+  const al = data.alcohol !== undefined ? (data.alcohol ? "✅" : "❌") : "—";
+
+  const prompts: Record<Session["step"], string> = {
+    energy:  "⚡ *Уровень энергии* — выбери от 1 до 10:",
+    focus:   "🎯 *Уровень фокуса* — выбери от 1 до 10:",
+    mood:    "😊 *Настроение* — выбери от 1 до 10:",
+    workout: "🏋️ *Была тренировка?*",
+    massage: "💆 *Был утренний массаж?*",
+    alcohol: "🍷 *Был алкоголь вчера?*",
+    confirm: "✅ *Всё верно? Запустить анализ?*",
+    decide:  "",
+  };
+
+  return [
+    "☀️ *Утренний чек-лист*",
+    "",
+    `⚡ Энергия: ${e}    🎯 Фокус: ${f}    😊 Настроение: ${m}`,
+    `🏋️ Тренировка: ${wo}    💆 Массаж: ${ma}    🍷 Алкоголь: ${al}`,
+    "",
+    prompts[step],
+  ].join("\n");
+}
+
+function stepKeyboard(step: Session["step"]) {
+  switch (step) {
+    case "energy":  return levelKeyboard("m:energy");
+    case "focus":   return levelKeyboard("m:focus");
+    case "mood":    return levelKeyboard("m:mood");
+    case "workout": return yesNoKeyboard("m:workout");
+    case "massage": return yesNoKeyboard("m:massage");
+    case "alcohol": return yesNoKeyboard("m:alcohol");
+    case "confirm": return {
+      inline_keyboard: [[
+        { text: "🚀 Запустить анализ", callback_data: "m:confirm" },
+        { text: "❌ Отмена", callback_data: "m:cancel" },
+      ]],
+    };
+    default: return undefined;
   }
+}
 
-  // Register CoS chat
+// ─── Message handler ───────────────────────────────────────────────────────
+
+export async function handleMessage(msg: Message): Promise<void> {
+  const chatId = msg.chat.id;
+  if (!isAllowed(chatId)) return;
+
   setChatId(String(chatId));
 
-  // Save raw input
+  const text = (msg.text ?? "").trim();
+
+  // Save input
   await db.insert(cosInputsTable).values({
     inputType: "free_text",
     telegramChatId: String(chatId),
     telegramMessageId: String(msg.message_id),
     rawText: text,
-  });
+  }).catch(() => {});
 
   // /start
-  if (text === "/start") {
-    await sendTelegramMessage(
+  if (text === "/start" || text === "/start@agent_orcestror_bot") {
+    await sendMessage(
       [
-        "👋 *LOS — Life Operating System активирован*",
+        "👋 *LOS — Life Operating System*",
         "",
-        "Добро пожаловать, Аня!",
+        "Привет, Аня\\! Система активирована и готова к работе\\.",
         "",
-        "Доступные команды:",
-        "• `/morning` — утренний чек-лист и анализ",
-        "• `/evening` — вечерний дайджест",
-        "• `/decide <описание>` — анализ решения",
-        "• `/status` — статус системы",
-        "• `/help` — помощь",
-        "",
-        "Система готова к работе 🚀",
-      ].join("\n"),
-      String(chatId)
+        "Выбери действие:",
+      ].join("\n").replace(/\\/g, ""),
+      String(chatId),
+      mainMenuKeyboard(),
     );
     return;
   }
 
   // /help
-  if (text === "/help") {
-    await sendTelegramMessage(
+  if (text === "/help" || text === "/help@agent_orcestror_bot") {
+    await sendMessage(
       [
         "📖 *Справка LOS*",
         "",
-        "*/morning* — запускает утренний анализ",
-        "  Формат: `/morning 7 8 7 н д н`",
-        "  (энергия фокус настроение тренировка массаж алкоголь)",
+        "*/morning* — утренний чек-лист с анализом состояния",
+        "*/decide* — анализ решения через несколько линз",
+        "*/status* — состояние всех агентов системы",
         "",
-        "*/decide* — анализ решения",
-        "  Пример: `/decide Подписывать ли контракт с Ивановым?`",
-        "",
-        "*/status* — проверка состояния системы",
-        "",
-        "Все данные: 1-10 для уровней, д/н для да/нет",
+        "Или пиши напрямую — бот поймёт контекст\\.".replace(/\\/g, ""),
       ].join("\n"),
-      String(chatId)
+      String(chatId),
     );
+    return;
+  }
+
+  // /morning
+  if (text === "/morning" || text.startsWith("/morning ") || text === "/morning@agent_orcestror_bot") {
+    await startMorningFlow(chatId);
     return;
   }
 
   // /status
-  if (text === "/status") {
-    await sendTelegramMessage(
-      [
-        "⚙️ *Статус LOS*",
-        "",
-        "🟢 Master Orchestrator — активен",
-        "🟢 Neuro & Bio Agent — активен",
-        "🟢 Decision Support Agent — активен",
-        "🟢 Telegram Bot (CoS) — активен",
-        "🟡 Health & Maintenance — Фаза 2",
-        "🟡 Treasury Agent — Фаза 2",
-        "🟡 Network Agent — Фаза 2",
-        "🔘 Esoteric Agent — Фаза 3",
-        "🔘 Communication Agent — Фаза 3",
-        "",
-        `🕐 Время сервера: ${new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow" })} MSK`,
-      ].join("\n"),
-      String(chatId)
-    );
+  if (text === "/status" || text === "/status@agent_orcestror_bot") {
+    await sendStatusMessage(String(chatId));
     return;
   }
 
-  // /morning with args: /morning 7 8 7 н д н
-  if (text.startsWith("/morning")) {
-    const parts = text.split(/\s+/).slice(1);
-    if (parts.length >= 6) {
-      const energy = parseLevel(parts[0]!);
-      const focus = parseLevel(parts[1]!);
-      const mood = parseLevel(parts[2]!);
-      const workout = parseYesNo(parts[3]!);
-      const massage = parseYesNo(parts[4]!);
-      const alcohol = parseYesNo(parts[5]!);
-
-      if (
-        energy !== undefined &&
-        focus !== undefined &&
-        mood !== undefined &&
-        workout !== undefined &&
-        massage !== undefined &&
-        alcohol !== undefined
-      ) {
-        await sendTelegramMessage("⏳ Анализирую данные... Это займёт около 30 секунд.", String(chatId));
-
-        try {
-          await runMorningSequence({ energyLevel: energy, focusLevel: focus, moodLevel: mood, hadWorkout: workout, hadMassage: massage, hadAlcohol: alcohol });
-        } catch (err) {
-          logger.error({ err }, "Morning sequence failed");
-          await sendTelegramMessage("❌ Ошибка при формировании дайджеста. Попробуй ещё раз.", String(chatId));
-        }
-        return;
-      }
-    }
-
-    // Start interactive flow
-    sessions.set(chatId, { step: "energy", data: {} });
-    await sendTelegramMessage(
-      "☀️ *Утренний чек-лист*\n\nОцени уровень энергии от 1 до 10:",
-      String(chatId)
-    );
-    return;
-  }
-
-  // /evening
-  if (text === "/evening") {
-    await sendTelegramMessage(
-      [
-        "🌙 *Вечерний дайджест*",
-        "",
-        "Завтра в 07:00 MSK — утренний анализ.",
-        "Хорошего отдыха! 🌙",
-      ].join("\n"),
-      String(chatId)
-    );
-    return;
-  }
-
-  // /decide <description>
+  // /decide with text
   if (text.startsWith("/decide ")) {
     const description = text.slice("/decide ".length).trim();
-    if (!description) {
-      await sendTelegramMessage("Укажи описание решения: `/decide <описание>`", String(chatId));
-      return;
-    }
-
-    await sendTelegramMessage("🔍 Анализирую решение...", String(chatId));
-
-    try {
-      const result = await runDecisionSupportAgent({
-        mode: "decision_analysis",
-        decisionDescription: description,
-      });
-
-      const da = result.decision_analysis;
-      const lines = [
-        "🧠 *Анализ решения*",
-        "",
-        `💡 *Рекомендация*: ${da?.recommendation ?? result.summary}`,
-      ];
-
-      if (da?.risks && da.risks.length > 0) {
-        lines.push("", "⚠️ *Риски*");
-        da.risks.forEach(r => lines.push(`• ${r}`));
-      }
-
-      if (da?.opportunities && da.opportunities.length > 0) {
-        lines.push("", "✅ *Возможности*");
-        da.opportunities.forEach(o => lines.push(`• ${o}`));
-      }
-
-      if (da?.optimal_timing) {
-        lines.push("", `⏰ *Оптимальное время*: ${da.optimal_timing}`);
-      }
-
-      if (da?.financial_lens) lines.push("", `💰 *Финансы*: ${da.financial_lens}`);
-      if (da?.physical_lens) lines.push("", `💪 *Физсостояние*: ${da.physical_lens}`);
-      if (da?.reputation_lens) lines.push("", `🤝 *Репутация*: ${da.reputation_lens}`);
-
-      lines.push("", "_Решение принимает Аня_ ✓");
-
-      await sendTelegramMessage(lines.join("\n"), String(chatId));
-    } catch (err) {
-      logger.error({ err }, "Decision analysis failed");
-      await sendTelegramMessage("❌ Ошибка анализа. Попробуй ещё раз.", String(chatId));
-    }
+    await runDecideFlow(chatId, description);
     return;
   }
 
-  // Interactive session flow
+  // /decide without text — ask to type
+  if (text === "/decide" || text === "/decide@agent_orcestror_bot") {
+    sessions.set(chatId, { step: "decide", data: {} });
+    await sendMessage(
+      "🧠 *Анализ решения*\n\nОпиши решение, которое нужно проанализировать:",
+      String(chatId),
+    );
+    return;
+  }
+
+  // Session: user typing decision text
   const session = sessions.get(chatId);
-  if (session) {
-    await handleSessionStep(chatId, text, session);
+  if (session?.step === "decide" && text && !text.startsWith("/")) {
+    sessions.delete(chatId);
+    await runDecideFlow(chatId, text);
     return;
   }
 
-  // Default
-  await sendTelegramMessage(
-    "Привет! Используй /help для списка команд.",
-    String(chatId)
+  // Default — show menu
+  await sendMessage(
+    "Используй меню или выбери действие:",
+    String(chatId),
+    mainMenuKeyboard(),
   );
 }
 
-async function handleSessionStep(chatId: number, text: string, session: SessionState): Promise<void> {
-  const data = session.data;
+// ─── Callback handler ──────────────────────────────────────────────────────
 
-  switch (session.step) {
-    case "energy": {
-      const val = parseLevel(text);
-      if (val === undefined) {
-        await sendTelegramMessage("Введи число от 1 до 10:", String(chatId));
-        return;
-      }
-      data.energy = val;
-      sessions.set(chatId, { step: "focus", data });
-      await sendTelegramMessage("Оцени уровень фокуса от 1 до 10:", String(chatId));
-      break;
-    }
-    case "focus": {
-      const val = parseLevel(text);
-      if (val === undefined) {
-        await sendTelegramMessage("Введи число от 1 до 10:", String(chatId));
-        return;
-      }
-      data.focus = val;
-      sessions.set(chatId, { step: "mood", data });
-      await sendTelegramMessage("Оцени настроение от 1 до 10:", String(chatId));
-      break;
-    }
-    case "mood": {
-      const val = parseLevel(text);
-      if (val === undefined) {
-        await sendTelegramMessage("Введи число от 1 до 10:", String(chatId));
-        return;
-      }
-      data.mood = val;
-      sessions.set(chatId, { step: "workout", data });
-      await sendTelegramMessage("Была ли тренировка? (д/н):", String(chatId));
-      break;
-    }
-    case "workout": {
-      const val = parseYesNo(text);
-      if (val === undefined) {
-        await sendTelegramMessage("Ответь д или н:", String(chatId));
-        return;
-      }
-      data.workout = val;
-      sessions.set(chatId, { step: "massage", data });
-      await sendTelegramMessage("Был ли утренний массаж? (д/н):", String(chatId));
-      break;
-    }
-    case "massage": {
-      const val = parseYesNo(text);
-      if (val === undefined) {
-        await sendTelegramMessage("Ответь д или н:", String(chatId));
-        return;
-      }
-      data.massage = val;
-      sessions.set(chatId, { step: "alcohol", data });
-      await sendTelegramMessage("Был ли алкоголь вчера? (д/н):", String(chatId));
-      break;
-    }
-    case "alcohol": {
-      const val = parseYesNo(text);
-      if (val === undefined) {
-        await sendTelegramMessage("Ответь д или н:", String(chatId));
-        return;
-      }
-      data.alcohol = val;
-      sessions.delete(chatId);
-
-      await sendTelegramMessage("⏳ Анализирую данные... Это займёт около 30 секунд.", String(chatId));
-      try {
-        await runMorningSequence({
-          energyLevel: data.energy as number,
-          focusLevel: data.focus as number,
-          moodLevel: data.mood as number,
-          hadWorkout: data.workout as boolean,
-          hadMassage: data.massage as boolean,
-          hadAlcohol: data.alcohol as boolean,
-        });
-      } catch (err) {
-        logger.error({ err }, "Morning sequence failed in session");
-        await sendTelegramMessage("❌ Ошибка при формировании дайджеста.", String(chatId));
-      }
-      break;
-    }
+export async function handleCallback(q: CallbackQuery): Promise<void> {
+  const chatId = q.message?.chat.id;
+  const msgId = q.message?.message_id;
+  if (!chatId || !isAllowed(chatId)) {
+    await answerCallback(q.id);
+    return;
   }
+
+  setChatId(String(chatId));
+  await answerCallback(q.id);
+
+  const data = q.data ?? "";
+
+  // ── Quick actions from main menu ──
+  if (data === "action:morning") {
+    await startMorningFlow(chatId, msgId);
+    return;
+  }
+  if (data === "action:decide") {
+    sessions.set(chatId, { step: "decide", data: {} });
+    await sendMessage(
+      "🧠 *Анализ решения*\n\nОпиши решение, которое нужно проанализировать:",
+      String(chatId),
+    );
+    return;
+  }
+  if (data === "action:status") {
+    await sendStatusMessage(String(chatId));
+    return;
+  }
+  if (data === "action:evening") {
+    await sendMessage(
+      "🌙 *Вечерний дайджест*\n\nХорошего отдыха! Завтра в 07:00 — утренний анализ.",
+      String(chatId),
+    );
+    return;
+  }
+
+  // ── Morning flow: m:<step>:<value> ──
+  if (data.startsWith("m:")) {
+    await handleMorningCallback(chatId, msgId, data);
+    return;
+  }
+}
+
+// ─── Morning flow ──────────────────────────────────────────────────────────
+
+async function startMorningFlow(chatId: number, editMsgId?: number): Promise<void> {
+  const session: Session = { step: "energy", data: {} };
+  sessions.set(chatId, session);
+
+  const text = morningCard({}, "energy");
+  const keyboard = stepKeyboard("energy");
+
+  if (editMsgId) {
+    await editMessage(String(chatId), editMsgId, text, keyboard);
+    session.messageId = editMsgId;
+  } else {
+    const sent = await sendMessage(text, String(chatId), keyboard);
+    if (sent) session.messageId = sent.message_id;
+  }
+  sessions.set(chatId, session);
+}
+
+async function handleMorningCallback(chatId: number, msgId: number | undefined, data: string): Promise<void> {
+  const session = sessions.get(chatId);
+
+  // cancel
+  if (data === "m:cancel") {
+    sessions.delete(chatId);
+    if (msgId) {
+      await editMessage(String(chatId), msgId, "❌ Отменено. Для нового анализа нажми /morning.", undefined);
+    }
+    return;
+  }
+
+  // confirm — run analysis
+  if (data === "m:confirm") {
+    if (!session) return;
+    sessions.delete(chatId);
+
+    const d = session.data;
+    const confirmMsgId = session.messageId ?? msgId;
+
+    if (confirmMsgId) {
+      await editMessage(
+        String(chatId),
+        confirmMsgId,
+        morningCard(d, "confirm").replace("✅ *Всё верно? Запустить анализ?*", "⏳ *Анализирую данные...*"),
+        undefined,
+      );
+    }
+
+    try {
+      await runMorningSequence({
+        energyLevel: d.energy,
+        focusLevel: d.focus,
+        moodLevel: d.mood,
+        hadWorkout: d.workout,
+        hadMassage: d.massage,
+        hadAlcohol: d.alcohol,
+      });
+    } catch (err) {
+      logger.error({ err }, "Morning sequence failed");
+      await sendMessage("❌ Ошибка при формировании дайджеста. Попробуй ещё раз.", String(chatId));
+    }
+    return;
+  }
+
+  // parse step:value
+  const parts = data.split(":");
+  if (parts.length < 3) return;
+  const [, step, value] = parts as [string, string, string];
+
+  if (!session) return;
+  const d = session.data;
+
+  // update data
+  if (step === "energy") d.energy = parseInt(value, 10);
+  else if (step === "focus") d.focus = parseInt(value, 10);
+  else if (step === "mood") d.mood = parseInt(value, 10);
+  else if (step === "workout") d.workout = value === "yes";
+  else if (step === "massage") d.massage = value === "yes";
+  else if (step === "alcohol") d.alcohol = value === "yes";
+
+  // advance to next step
+  const nextStep = nextStepMap[step as keyof typeof nextStepMap] ?? "confirm";
+  session.step = nextStep;
+  sessions.set(chatId, session);
+
+  const targetMsgId = session.messageId ?? msgId;
+  const text = morningCard(d, nextStep);
+  const keyboard = stepKeyboard(nextStep);
+
+  if (targetMsgId) {
+    await editMessage(String(chatId), targetMsgId, text, keyboard);
+  } else {
+    const sent = await sendMessage(text, String(chatId), keyboard);
+    if (sent) session.messageId = sent.message_id;
+  }
+}
+
+const nextStepMap = {
+  energy:  "focus",
+  focus:   "mood",
+  mood:    "workout",
+  workout: "massage",
+  massage: "alcohol",
+  alcohol: "confirm",
+} as const;
+
+// ─── Decide flow ───────────────────────────────────────────────────────────
+
+async function runDecideFlow(chatId: number, description: string): Promise<void> {
+  const thinkingMsg = await sendMessage(
+    `🧠 *Анализирую решение...*\n\n_${escapeMarkdown(description)}_`,
+    String(chatId),
+  );
+
+  try {
+    const result = await runDecisionSupportAgent({
+      mode: "decision_analysis",
+      decisionDescription: description,
+    });
+
+    const da = result.decision_analysis;
+    const lines = [
+      "🧠 *Анализ решения*",
+      "",
+      `_${escapeMarkdown(description)}_`,
+      "",
+      `💡 *Рекомендация*`,
+      da?.recommendation ?? result.summary,
+    ];
+
+    if (da?.risks?.length) {
+      lines.push("", "⚠️ *Риски*");
+      da.risks.forEach(r => lines.push(`• ${r}`));
+    }
+    if (da?.opportunities?.length) {
+      lines.push("", "✅ *Возможности*");
+      da.opportunities.forEach(o => lines.push(`• ${o}`));
+    }
+    if (da?.optimal_timing) lines.push("", `⏰ *Оптимальное время*: ${da.optimal_timing}`);
+    if (da?.financial_lens) lines.push("", `💰 *Финансы*: ${da.financial_lens}`);
+    if (da?.physical_lens)  lines.push("", `💪 *Физсостояние*: ${da.physical_lens}`);
+    if (da?.reputation_lens) lines.push("", `🤝 *Репутация*: ${da.reputation_lens}`);
+    lines.push("", "_Решение принимает Аня_ ✓");
+
+    if (thinkingMsg) {
+      await editMessage(String(chatId), thinkingMsg.message_id, lines.join("\n"));
+    } else {
+      await sendMessage(lines.join("\n"), String(chatId));
+    }
+  } catch (err) {
+    logger.error({ err }, "Decision analysis failed");
+    await sendMessage("❌ Ошибка анализа. Попробуй ещё раз.", String(chatId));
+  }
+}
+
+// ─── Status ────────────────────────────────────────────────────────────────
+
+async function sendStatusMessage(chatId: string): Promise<void> {
+  await sendMessage(
+    [
+      "⚙️ *Статус LOS*",
+      "",
+      "🟢 Master Orchestrator",
+      "🟢 Neuro & Bio Agent",
+      "🟢 Decision Support Agent",
+      "🟢 Telegram Bot (CoS)",
+      "🔘 Health & Maintenance — Фаза 2",
+      "🔘 Treasury Agent — Фаза 2",
+      "🔘 Network Agent — Фаза 2",
+      "🔘 Esoteric Agent — Фаза 3",
+      "🔘 Communication Agent — Фаза 3",
+      "",
+      `🕐 ${new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow" })} MSK`,
+    ].join("\n"),
+    chatId,
+  );
+}
+
+// ─── Helpers ───────────────────────────────────────────────────────────────
+
+function escapeMarkdown(text: string): string {
+  return text.replace(/[_*[\]()~`>#+=|{}.!-]/g, c => `\\${c}`);
 }

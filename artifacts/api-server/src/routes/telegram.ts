@@ -1,24 +1,29 @@
 import { Router, type IRouter } from "express";
-import { getMessageHandler } from "../lib/telegram";
-import type { Message } from "node-telegram-bot-api";
+import { getMessageHandler, getCallbackHandler } from "../lib/telegram";
+import type { Message, CallbackQuery } from "node-telegram-bot-api";
 
 const router: IRouter = Router();
 
 router.post("/telegram/webhook", async (req, res) => {
-  // Always respond 200 immediately so Telegram doesn't retry
+  // Respond 200 immediately — Telegram requires fast acknowledgment
   res.sendStatus(200);
 
-  const body = req.body as { message?: Message };
-  const msg = body.message;
-  if (!msg) return;
+  const body = req.body as { message?: Message; callback_query?: CallbackQuery };
 
-  const handler = getMessageHandler();
-  if (!handler) return;
-
-  try {
-    await handler(msg);
-  } catch (err) {
-    req.log.error({ err }, "Telegram webhook handler error");
+  if (body.message) {
+    const handler = getMessageHandler();
+    if (handler) {
+      try { await handler(body.message); } catch (err) {
+        req.log.error({ err }, "Telegram message handler error");
+      }
+    }
+  } else if (body.callback_query) {
+    const handler = getCallbackHandler();
+    if (handler) {
+      try { await handler(body.callback_query); } catch (err) {
+        req.log.error({ err }, "Telegram callback handler error");
+      }
+    }
   }
 });
 
