@@ -61,9 +61,9 @@ export async function runMorningSequence(cosInput?: {
   energyLevel?: number;
   focusLevel?: number;
   moodLevel?: number;
-  hadWorkout?: boolean;
-  hadMassage?: boolean;
-  hadAlcohol?: boolean;
+  hadWorkout?: string;
+  hadMassage?: string;
+  hadAlcohol?: string;
 }): Promise<string> {
   logger.info("Starting morning sequence");
 
@@ -101,9 +101,9 @@ export async function runMorningSequence(cosInput?: {
     energyLevel: cosInput?.energyLevel ?? null,
     focusLevel: cosInput?.focusLevel ?? null,
     moodLevel: cosInput?.moodLevel ?? null,
-    hadWorkout: cosInput?.hadWorkout !== undefined ? String(cosInput.hadWorkout) : null,
-    hadMassage: cosInput?.hadMassage !== undefined ? String(cosInput.hadMassage) : null,
-    hadAlcohol: cosInput?.hadAlcohol !== undefined ? String(cosInput.hadAlcohol) : null,
+    hadWorkout: cosInput?.hadWorkout ?? null,
+    hadMassage: cosInput?.hadMassage ?? null,
+    hadAlcohol: cosInput?.hadAlcohol ?? null,
     dataSource: ouraIncomplete ? "manual" : "oura",
   });
 

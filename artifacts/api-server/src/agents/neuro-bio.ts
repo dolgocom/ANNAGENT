@@ -13,9 +13,9 @@ export interface NeuroBioInput {
   energyLevel?: number;
   focusLevel?: number;
   moodLevel?: number;
-  hadWorkout?: boolean;
-  hadMassage?: boolean;
-  hadAlcohol?: boolean;
+  hadWorkout?: string;
+  hadMassage?: string;
+  hadAlcohol?: string;
   todayScheduleDescription?: string;
   dataIncomplete?: boolean;
 }
@@ -83,9 +83,9 @@ export async function runNeuroBioAgent(input: NeuroBioInput): Promise<NeuroBioOu
 - Энергия (субъективно): ${input.energyLevel ?? "нет данных"}/10
 - Фокус (субъективно): ${input.focusLevel ?? "нет данных"}/10
 - Настроение: ${input.moodLevel ?? "нет данных"}/10
-- Тренировка сегодня: ${input.hadWorkout === true ? "ДА" : input.hadWorkout === false ? "НЕТ" : "нет данных"}
-- Массаж утром: ${input.hadMassage === true ? "ДА" : input.hadMassage === false ? "НЕТ" : "нет данных"}
-- Алкоголь вчера: ${input.hadAlcohol === true ? "ДА" : input.hadAlcohol === false ? "НЕТ" : "нет данных"}
+- Тренировка сегодня: ${input.hadWorkout ?? "нет данных"}
+- Массаж утром: ${input.hadMassage ?? "нет данных"}
+- Алкоголь вчера: ${input.hadAlcohol ?? "нет данных"}
 - Данные Oura доступны: ${input.dataIncomplete ? "НЕТ (неполные)" : "ДА"}
 
 РАСПИСАНИЕ СЕГОДНЯ:

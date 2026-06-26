@@ -107,6 +107,54 @@ export function yesNoKeyboard(prefix: string, label: string): InlineKeyboardMark
   };
 }
 
+export function workoutKeyboard(): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      [{ text: "· 🏋️ Какая тренировка? ·", callback_data: "noop" }],
+      [
+        { text: "❌ Не было",    callback_data: "m:workout:нет" },
+        { text: "🏃 Кардио",    callback_data: "m:workout:кардио" },
+      ],
+      [
+        { text: "💪 Силовая",   callback_data: "m:workout:силовая" },
+        { text: "🧘 Йога/растяжка", callback_data: "m:workout:йога" },
+      ],
+    ],
+  };
+}
+
+export function massageKeyboard(): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      [{ text: "· 💆 Какой массаж? ·", callback_data: "noop" }],
+      [
+        { text: "❌ Не было",   callback_data: "m:massage:нет" },
+        { text: "🤲 Обычный",  callback_data: "m:massage:обычный" },
+      ],
+      [
+        { text: "🇹🇭 Тайский", callback_data: "m:massage:тайский" },
+        { text: "💆 Другой",   callback_data: "m:massage:другой" },
+      ],
+    ],
+  };
+}
+
+export function alcoholKeyboard(): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      [{ text: "· 🍷 Алкоголь вчера? ·", callback_data: "noop" }],
+      [
+        { text: "❌ Не было",   callback_data: "m:alcohol:нет" },
+        { text: "🍷 Бокал",    callback_data: "m:alcohol:немного" },
+      ],
+      [
+        { text: "🍺 Умеренно", callback_data: "m:alcohol:умеренно" },
+        { text: "🥃 Много",    callback_data: "m:alcohol:много" },
+      ],
+    ],
+  };
+}
+
 export function mainMenuKeyboard(): InlineKeyboardMarkup {
   return {
     inline_keyboard: [

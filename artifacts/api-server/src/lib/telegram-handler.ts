@@ -1,7 +1,8 @@
 import type { Message, CallbackQuery } from "node-telegram-bot-api";
 import {
   setChatId, sendMessage, editMessage, answerCallback,
-  levelKeyboard, yesNoKeyboard, mainMenuKeyboard, getChatId,
+  levelKeyboard, workoutKeyboard, massageKeyboard, alcoholKeyboard,
+  mainMenuKeyboard, getChatId,
 } from "./telegram";
 import { runMorningSequence } from "../agents/orchestrator";
 import { runDecisionSupportAgent } from "../agents/decision-support";
@@ -25,10 +26,29 @@ interface MorningData {
   energy?: number;
   focus?: number;
   mood?: number;
-  workout?: boolean;
-  massage?: boolean;
-  alcohol?: boolean;
+  workout?: string;
+  massage?: string;
+  alcohol?: string;
 }
+
+const workoutLabel: Record<string, string> = {
+  нет:     "❌ Не было",
+  кардио:  "🏃 Кардио",
+  силовая: "💪 Силовая",
+  йога:    "🧘 Йога",
+};
+const massageLabel: Record<string, string> = {
+  нет:     "❌ Не было",
+  обычный: "🤲 Обычный",
+  тайский: "🇹🇭 Тайский",
+  другой:  "💆 Другой",
+};
+const alcoholLabel: Record<string, string> = {
+  нет:      "❌ Не было",
+  немного:  "🍷 Бокал",
+  умеренно: "🍺 Умеренно",
+  много:    "🥃 Много",
+};
 
 interface Session {
   step: "energy" | "focus" | "mood" | "workout" | "massage" | "alcohol" | "confirm" | "decide";
@@ -44,17 +64,17 @@ function morningCard(data: MorningData, step: Session["step"]): string {
   const e = data.energy !== undefined ? `${data.energy}/10` : "—";
   const f = data.focus !== undefined ? `${data.focus}/10` : "—";
   const m = data.mood !== undefined ? `${data.mood}/10` : "—";
-  const wo = data.workout !== undefined ? (data.workout ? "✅" : "❌") : "—";
-  const ma = data.massage !== undefined ? (data.massage ? "✅" : "❌") : "—";
-  const al = data.alcohol !== undefined ? (data.alcohol ? "✅" : "❌") : "—";
+  const wo = data.workout !== undefined ? (workoutLabel[data.workout] ?? data.workout) : "—";
+  const ma = data.massage !== undefined ? (massageLabel[data.massage] ?? data.massage) : "—";
+  const al = data.alcohol !== undefined ? (alcoholLabel[data.alcohol] ?? data.alcohol) : "—";
 
   const prompts: Record<Session["step"], string> = {
     energy:  "⚡ *Уровень энергии* — выбери от 1 до 10:",
     focus:   "🎯 *Уровень фокуса* — выбери от 1 до 10:",
     mood:    "😊 *Настроение* — выбери от 1 до 10:",
-    workout: "🏋️ *Была тренировка?*",
-    massage: "💆 *Был утренний массаж?*",
-    alcohol: "🍷 *Был алкоголь вчера?*",
+    workout: "🏋️ *Тренировка — выбери тип:*",
+    massage: "💆 *Массаж — выбери тип:*",
+    alcohol: "🍷 *Алкоголь вчера — выбери степень:*",
     confirm: "✅ *Всё верно? Запустить анализ?*",
     decide:  "",
   };
@@ -78,9 +98,9 @@ function stepKeyboard(step: Session["step"]) {
     case "energy":  return levelKeyboard("m:energy",  "⚡ Энергия");
     case "focus":   return levelKeyboard("m:focus",   "🎯 Фокус");
     case "mood":    return levelKeyboard("m:mood",    "😊 Настроение");
-    case "workout": return yesNoKeyboard("m:workout", "🏋️ Тренировка сегодня?");
-    case "massage": return yesNoKeyboard("m:massage", "💆 Утренний массаж?");
-    case "alcohol": return yesNoKeyboard("m:alcohol", "🍷 Алкоголь вчера?");
+    case "workout": return workoutKeyboard();
+    case "massage": return massageKeyboard();
+    case "alcohol": return alcoholKeyboard();
     case "confirm": return {
       inline_keyboard: [[
         { text: "🚀 Запустить анализ", callback_data: "m:confirm" },
@@ -313,9 +333,9 @@ async function handleMorningCallback(chatId: number, msgId: number | undefined, 
   if (step === "energy") d.energy = parseInt(value, 10);
   else if (step === "focus") d.focus = parseInt(value, 10);
   else if (step === "mood") d.mood = parseInt(value, 10);
-  else if (step === "workout") d.workout = value === "yes";
-  else if (step === "massage") d.massage = value === "yes";
-  else if (step === "alcohol") d.alcohol = value === "yes";
+  else if (step === "workout") d.workout = value;
+  else if (step === "massage") d.massage = value;
+  else if (step === "alcohol") d.alcohol = value;
 
   // advance to next step
   const nextStep = nextStepMap[step as keyof typeof nextStepMap] ?? "confirm";
