@@ -1,6 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { initTelegramPolling } from "./lib/telegram";
+import { initTelegramWebhook } from "./lib/telegram";
 import { handleTelegramMessage } from "./lib/telegram-handler";
 import { startScheduler } from "./lib/scheduler";
 
@@ -26,8 +26,8 @@ app.listen(port, (err) => {
 
   logger.info({ port }, "Server listening");
 
-  // Start Telegram bot polling
-  initTelegramPolling(handleTelegramMessage);
+  // Register Telegram webhook
+  void initTelegramWebhook(handleTelegramMessage);
 
   // Start cron scheduler
   startScheduler();

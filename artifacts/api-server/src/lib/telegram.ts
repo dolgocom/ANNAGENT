@@ -3,13 +3,21 @@ import { logger } from "./logger";
 
 let bot: TelegramBot | null = null;
 let cosCharId: string | null = null;
+let messageHandler: ((msg: Message) => Promise<void>) | null = null;
+
+export function getMessageHandler() {
+  return messageHandler;
+}
+
+function createBot(): TelegramBot {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) throw new Error("TELEGRAM_BOT_TOKEN is required");
+  // webhook mode — no polling
+  return new TelegramBot(token, { polling: false });
+}
 
 export function getTelegramBot(): TelegramBot {
-  if (!bot) {
-    const token = process.env.TELEGRAM_BOT_TOKEN;
-    if (!token) throw new Error("TELEGRAM_BOT_TOKEN is required");
-    bot = new TelegramBot(token, { polling: false });
-  }
+  if (!bot) bot = createBot();
   return bot;
 }
 
@@ -26,9 +34,9 @@ export function setChatId(id: string) {
 
 export async function sendTelegramMessage(text: string, chatId?: string): Promise<void> {
   try {
-    const bot = getTelegramBot();
+    const b = getTelegramBot();
     const id = chatId ?? getChatId();
-    await bot.sendMessage(id, text, { parse_mode: "Markdown" });
+    await b.sendMessage(id, text, { parse_mode: "Markdown" });
   } catch (err) {
     logger.error({ err }, "Failed to send Telegram message");
   }
@@ -71,30 +79,30 @@ export async function sendEveningDigest(chatId?: string): Promise<void> {
   await sendTelegramMessage(text, id);
 }
 
-export function initTelegramPolling(
+export async function initTelegramWebhook(
   onMessage: (msg: Message) => Promise<void>
-): void {
+): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
     logger.warn("TELEGRAM_BOT_TOKEN not set — Telegram bot disabled");
     return;
   }
 
-  const pollingBot = new TelegramBot(token, { polling: true });
-  bot = pollingBot;
+  messageHandler = onMessage;
 
-  pollingBot.on("message", async (msg) => {
-    logger.info({ chatId: msg.chat.id, text: msg.text }, "Telegram message received");
-    try {
-      await onMessage(msg);
-    } catch (err) {
-      logger.error({ err }, "Error handling Telegram message");
-    }
-  });
+  const domain = process.env.REPLIT_DOMAINS?.split(",")[0];
+  if (!domain) {
+    logger.error("REPLIT_DOMAINS not set — cannot register webhook");
+    return;
+  }
 
-  pollingBot.on("polling_error", (err) => {
-    logger.error({ err }, "Telegram polling error");
-  });
+  const webhookUrl = `https://${domain}/api/telegram/webhook`;
 
-  logger.info("Telegram bot polling started");
+  try {
+    bot = new TelegramBot(token, { polling: false });
+    await bot.setWebhook(webhookUrl);
+    logger.info({ webhookUrl }, "Telegram webhook registered");
+  } catch (err) {
+    logger.error({ err }, "Failed to set Telegram webhook");
+  }
 }
